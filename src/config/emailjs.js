@@ -1,27 +1,19 @@
 // EmailJS Configuration
-// Replace these with your actual EmailJS credentials from https://www.emailjs.com/
-
+// Read from environment variables only (no hardcoded IDs/keys)
 export const EMAILJS_CONFIG = {
-  SERVICE_ID: 'YOUR_SERVICE_ID',        // Replace with your EmailJS Service ID
-  TEMPLATE_ID: 'YOUR_TEMPLATE_ID',      // Replace with your EmailJS Template ID  
-  PUBLIC_KEY: 'YOUR_PUBLIC_KEY'         // Replace with your EmailJS Public Key
+  SERVICE_ID: process.env.REACT_APP_EMAILJS_SERVICE_ID,
+  TEMPLATE_ID: process.env.REACT_APP_EMAILJS_TEMPLATE_ID,
+  PUBLIC_KEY: process.env.REACT_APP_EMAILJS_PUBLIC_KEY,
 };
 
-// Instructions to set up EmailJS:
+// Instructions to set up EmailJS with Gmail:
 // 1. Go to https://www.emailjs.com/
 // 2. Create a free account
-// 3. Add your Gmail (or any email service)
-// 4. Create a service and get SERVICE_ID
-// 5. Create an email template with these variables:
-//    - {{to_email}}
-//    - {{to_name}}
-//    - {{company_name}}
-//    - {{status}}
-//    - {{message}}
-//    - {{from_name}}
-// 6. Get TEMPLATE_ID from the template
-// 7. Get PUBLIC_KEY from Account > API Keys
-// 8. Replace the values above with your actual credentials
+// 3. Add Gmail email service and copy SERVICE_ID
+// 4. Create an email template and copy TEMPLATE_ID
+// 5. Copy PUBLIC_KEY from Account → General → API Keys
+// 6. Put them into your .env.local as REACT_APP_EMAILJS_* vars
+// 7. Restart your React app after updating
 
 // Sample Email Template:
 /*

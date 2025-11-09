@@ -13,39 +13,50 @@ const RoleSelection = () => {
 
   return (
     <div className="role-selection-container">
-      <div className="role-selection-card">
-        <h1 className="title">Welcome to Placement Portal</h1>
-        <p className="subtitle">Please select your role to continue</p>
+      <div className="role-selection-wrapper">
+        <h1 className="main-title">Welcome to the Placement Portal</h1>
         
         <div className="role-options">
-          <div 
-            className="role-card student-card"
-            onClick={() => handleRoleSelect('student')}
-          >
-            <div className="role-icon">🎓</div>
-            <h3>Student</h3>
-            <p>Access job opportunities, apply for positions, and track your applications</p>
-            <button className="role-btn student-btn">Login as Student</button>
+          <div className="role-card">
+            <div className="role-icon-container">
+              <div className="role-icon">🎓</div>
+            </div>
+            <h3 className="role-title">Student</h3>
+            <p className="role-description">Access job opportunities, apply for positions, and track your applications.</p>
+            <button 
+              className="role-btn"
+              onClick={() => handleRoleSelect('student')}
+            >
+              Login
+            </button>
           </div>
 
-          <div 
-            className="role-card manager-card"
-            onClick={() => handleRoleSelect('manager')}
-          >
-            <div className="role-icon">💼</div>
-            <h3>Placement Manager</h3>
-            <p>Manage job postings, review applications, and coordinate placements</p>
-            <button className="role-btn manager-btn">Login as Manager</button>
+          <div className="role-card">
+            <div className="role-icon-container">
+              <div className="role-icon">💼</div>
+            </div>
+            <h3 className="role-title">TPO/Admin</h3>
+            <p className="role-description">Manage job postings, review applications, and coordinate placements.</p>
+            <button 
+              className="role-btn"
+              onClick={() => handleRoleSelect('manager')}
+            >
+              Login
+            </button>
           </div>
 
-          <div 
-            className="role-card hod-card"
-            onClick={() => handleRoleSelect('hod')}
-          >
-            <div className="role-icon">👨‍🏫</div>
-            <h3>Head of Department</h3>
-            <p>Oversee departmental placements, approve policies, and monitor student progress</p>
-            <button className="role-btn hod-btn">Login as HOD</button>
+          <div className="role-card">
+            <div className="role-icon-container">
+              <div className="role-icon">👥</div>
+            </div>
+            <h3 className="role-title">Head of Department</h3>
+            <p className="role-description">Oversee placements, approve policies, and monitor student progress.</p>
+            <button 
+              className="role-btn"
+              onClick={() => handleRoleSelect('hod')}
+            >
+              Login
+            </button>
           </div>
         </div>
 

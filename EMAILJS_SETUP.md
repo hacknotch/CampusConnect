@@ -11,12 +11,13 @@ Your placement portal now includes an automated email notification system that s
 2. Sign up for a free account
 3. Verify your email address
 
-### 2. Add Email Service
+### 2. Add Email Service (Outlook)
 1. In EmailJS dashboard, go to **Email Services**
 2. Click **Add New Service**
-3. Choose your email provider (Gmail recommended)
-4. Follow the setup wizard
-5. **Copy the Service ID** (e.g., `service_abc123`)
+3. Choose **Outlook** (or **Outlook.com** / **Microsoft 365**)
+4. Click **Connect Account** and sign in with your Microsoft/Outlook account
+5. Grant all requested permissions when prompted
+6. **Copy the Service ID** (e.g., `service_outlook123`)
 
 ### 3. Create Email Template
 1. Go to **Email Templates**
@@ -111,6 +112,25 @@ Make sure your EmailJS template includes these variables:
 2. Verify template variables match exactly
 3. Check browser console for errors
 4. Ensure EmailJS service is active
+5. **For Outlook**: Make sure you granted all permissions during account connection
+6. **For Outlook**: Try disconnecting and reconnecting your Outlook account in EmailJS
+
+### Outlook-Specific Issues
+- **"Insufficient authentication scopes" error**: 
+  - Go to EmailJS dashboard → Email Services
+  - Click on your Outlook service
+  - Click "Reconnect" or "Re-authorize"
+  - Grant ALL permissions when prompted
+  - Make sure to check all the permission boxes
+
+- **"Service not found" error**:
+  - Verify your Service ID is correct in `emailjs.js`
+  - Check that the Outlook service is "Active" in EmailJS dashboard
+
+- **Emails not arriving**:
+  - Check your Outlook spam/junk folder
+  - Verify the recipient email address is correct
+  - Test sending from EmailJS dashboard first
 
 ### Status Not Updating?
 1. Check Firebase Firestore rules

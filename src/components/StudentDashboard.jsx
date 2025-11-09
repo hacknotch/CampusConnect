@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from "react";
 import { signOut } from "firebase/auth";
 import { auth, db } from "../firebase/config";
-import { collection, getDocs, addDoc, query, where, onSnapshot } from "firebase/firestore";
+import { collection, getDocs, addDoc, deleteDoc, doc, query, where, onSnapshot, orderBy } from "firebase/firestore";
 import { useNavigate } from "react-router-dom";
+import './StudentDashboard.css';
 
 export default function StudentDashboard() {
   const student = JSON.parse(localStorage.getItem("student"));
@@ -11,13 +12,26 @@ export default function StudentDashboard() {
   const [placementDrives, setPlacementDrives] = useState([]);
   const [myApplications, setMyApplications] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState('recommended');
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [jobsToShow, setJobsToShow] = useState(3);
+  const [notifications, setNotifications] = useState([]);
+  const [lastSeenJobs, setLastSeenJobs] = useState(new Set());
+  const [lastSeenApplications, setLastSeenApplications] = useState(new Map());
+  const [savedJobs, setSavedJobs] = useState(new Set());
+  const [studentData, setStudentData] = useState(student || {});
   const dropdownRef = useRef(null);
+  const notificationRef = useRef(null);
 
   // Close dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
         setShowProfileDropdown(false);
+      }
+      if (notificationRef.current && !notificationRef.current.contains(event.target)) {
+        setShowNotifications(false);
       }
     };
 
@@ -27,9 +41,133 @@ export default function StudentDashboard() {
     };
   }, []);
 
-  // Fetch placement drives and applications
+  // Fetch student data from Firestore
   useEffect(() => {
-    fetchPlacementDrives();
+    const fetchStudentData = async () => {
+      if (!auth.currentUser) return;
+
+      try {
+        // Try to get student data from Firestore
+        const studentsQuery = query(
+          collection(db, 'students'),
+          where('email', '==', auth.currentUser.email)
+        );
+        const querySnapshot = await getDocs(studentsQuery);
+        
+        if (!querySnapshot.empty) {
+          const studentDoc = querySnapshot.docs[0];
+          const firestoreStudentData = {
+            id: studentDoc.id,
+            ...studentDoc.data()
+          };
+          setStudentData(firestoreStudentData);
+          // Update localStorage
+          localStorage.setItem('student', JSON.stringify(firestoreStudentData));
+        } else {
+          // Fallback to localStorage student data
+          const localStudent = JSON.parse(localStorage.getItem('student')) || {};
+          setStudentData(localStudent);
+        }
+      } catch (error) {
+        console.error('Error fetching student data:', error);
+        // Fallback to localStorage
+        const localStudent = JSON.parse(localStorage.getItem('student')) || {};
+        setStudentData(localStudent);
+      }
+    };
+
+    fetchStudentData();
+  }, []);
+
+  // Fetch placement drives and applications with real-time listeners
+  useEffect(() => {
+    let unsubscribeDrives = null;
+    let unsubscribeApplications = null;
+
+    // Set up real-time listener for placement drives
+    const setupDrivesListener = () => {
+      try {
+        const drivesQuery = query(
+          collection(db, 'placementDrives'),
+          orderBy('createdAt', 'desc')
+        );
+
+        unsubscribeDrives = onSnapshot(
+          drivesQuery,
+          (snapshot) => {
+            const drives = snapshot.docs.map(doc => ({
+              id: doc.id,
+              ...doc.data()
+            }));
+
+            console.log('📊 Real-time update: Total drives found:', drives.length);
+
+            // Filter only active drives (NO CGPA FILTER - show all active drives)
+            const activeDrives = drives.filter(drive => {
+              return drive.status === 'active';
+            });
+
+            // Check for new jobs (notifications)
+            const currentJobIds = new Set(activeDrives.map(d => d.id));
+            const newJobs = activeDrives.filter(drive => !lastSeenJobs.has(drive.id));
+            
+            if (newJobs.length > 0 && lastSeenJobs.size > 0) {
+              // Only notify if we've seen jobs before (not initial load)
+              newJobs.forEach(job => {
+                const notification = {
+                  id: `job-${job.id}-${Date.now()}`,
+                  type: 'new_job',
+                  title: 'New Job Available',
+                  message: `${job.companyName} - ${job.roleOffered}`,
+                  timestamp: new Date().toISOString(),
+                  read: false,
+                  jobId: job.id
+                };
+                setNotifications(prev => [notification, ...prev]);
+              });
+            }
+            
+            // Update last seen jobs
+            setLastSeenJobs(currentJobIds);
+
+            console.log('✅ Active drives (all visible, no CGPA filter):', activeDrives.length);
+            setPlacementDrives(activeDrives);
+            setLoading(false);
+          },
+          (error) => {
+            console.error('Error in drives listener:', error);
+            // If orderBy fails due to missing index, use simple collection query
+            if (error.code === 'failed-precondition') {
+              console.log('⚠️ Firestore index required for orderBy. Using simple query...');
+              const simpleQuery = collection(db, 'placementDrives');
+              unsubscribeDrives = onSnapshot(simpleQuery, (snapshot) => {
+                const drives = snapshot.docs.map(doc => ({
+                  id: doc.id,
+                  ...doc.data()
+                }));
+                // Manual sort
+                drives.sort((a, b) => {
+                  const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+                  const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+                  return bTime - aTime;
+                });
+                // Filter only active drives (NO CGPA FILTER)
+                const activeDrives = drives.filter(drive => {
+                  return drive.status === 'active';
+                });
+                setPlacementDrives(activeDrives);
+                setLoading(false);
+              });
+            } else {
+              setLoading(false);
+            }
+          }
+        );
+      } catch (error) {
+        console.error('Error setting up drives listener:', error);
+        setLoading(false);
+      }
+    };
     
     // Set up real-time listener for applications
     const setupApplicationsListener = async () => {
@@ -37,52 +175,52 @@ export default function StudentDashboard() {
       return unsubscribe;
     };
     
-    let unsubscribe;
+    // Initialize listeners
+    setupDrivesListener();
     setupApplicationsListener().then(unsub => {
-      unsubscribe = unsub;
+      unsubscribeApplications = unsub;
     });
 
-    // Cleanup listener on component unmount
+      // Cleanup listeners on component unmount
     return () => {
-      if (unsubscribe) {
-        unsubscribe();
-      }
-    };
-  }, []);
+          if (unsubscribeDrives) {
+            unsubscribeDrives();
+          }
+          if (unsubscribeApplications) {
+            unsubscribeApplications();
+          }
+        };
+      }, []); // Empty dependency array - only run once on mount
 
-  const fetchPlacementDrives = async () => {
-    try {
-      // Try both collection names to see where drives are stored
-      console.log('🔍 Checking for drives in both collections...');
-      
-      // Check 'drives' collection first
-      let drivesSnapshot = await getDocs(collection(db, 'drives'));
-      console.log('📊 Drives in "drives" collection:', drivesSnapshot.docs.length);
-      
-      // If no drives found, check 'placementDrives' collection
-      if (drivesSnapshot.docs.length === 0) {
-        drivesSnapshot = await getDocs(collection(db, 'placementDrives'));
-        console.log('📊 Drives in "placementDrives" collection:', drivesSnapshot.docs.length);
-      }
-      const drives = drivesSnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-      
-      // Filter active drives and check CGPA eligibility
-      const eligibleDrives = drives.filter(drive => {
-        const studentCGPA = parseFloat(student?.cgpa) || 0;
-        const requiredCGPA = drive.cgpaCriteria || 0;
-        return drive.status === 'active' && studentCGPA >= requiredCGPA;
-      });
-      
-      setPlacementDrives(eligibleDrives);
+      // Fetch saved jobs
+      useEffect(() => {
+        const fetchSavedJobs = async () => {
+          if (!auth.currentUser) return;
+
+          try {
+            const savedJobsQuery = query(
+              collection(db, 'savedJobs'),
+              where('studentId', '==', auth.currentUser.uid)
+            );
+
+            const unsubscribe = onSnapshot(savedJobsQuery, (snapshot) => {
+              const savedJobIds = new Set();
+              snapshot.docs.forEach(doc => {
+                savedJobIds.add(doc.data().driveId);
+              });
+              setSavedJobs(savedJobIds);
+            });
+
+            return () => unsubscribe();
     } catch (error) {
-      console.error('Error fetching placement drives:', error);
-    } finally {
-      setLoading(false);
+            console.error('Error fetching saved jobs:', error);
     }
   };
+
+        fetchSavedJobs();
+      }, []);
+
+  // Removed fetchPlacementDrives - now using real-time listener in useEffect
 
   const fetchMyApplications = async () => {
     try {
@@ -97,6 +235,69 @@ export default function StudentDashboard() {
           id: doc.id,
           ...doc.data()
         }));
+        console.log('📊 Real-time update: Student applications:', applications.length);
+        console.log('📋 Application statuses:', applications.map(app => ({
+          company: app.companyName,
+          status: app.status,
+          updatedAt: app.updatedAt
+        })));
+
+        // Check for status changes (notifications for approved/rejected)
+        if (lastSeenApplications.size > 0) {
+          applications.forEach(app => {
+            const prevApp = lastSeenApplications.get(app.id);
+            
+            // Only notify if status changed (not on initial load)
+            if (prevApp && prevApp.status !== app.status) {
+              // Status changed - create notification
+              let notification = null;
+              
+              if (app.status === 'Approved') {
+                notification = {
+                  id: `approved-${app.id}-${Date.now()}`,
+                  type: 'approved',
+                  title: 'Application Approved! 🎉',
+                  message: `Your application for ${app.companyName} - ${app.roleOffered} has been approved!`,
+                  timestamp: app.updatedAt || new Date().toISOString(),
+                  read: false,
+                  applicationId: app.id
+                };
+              } else if (app.status === 'Rejected') {
+                notification = {
+                  id: `rejected-${app.id}-${Date.now()}`,
+                  type: 'rejected',
+                  title: 'Application Update',
+                  message: `Your application for ${app.companyName} - ${app.roleOffered} has been rejected.`,
+                  timestamp: app.updatedAt || new Date().toISOString(),
+                  read: false,
+                  applicationId: app.id
+                };
+              } else if (app.status === 'On Hold') {
+                notification = {
+                  id: `hold-${app.id}-${Date.now()}`,
+                  type: 'on_hold',
+                  title: 'Application Under Review',
+                  message: `Your application for ${app.companyName} - ${app.roleOffered} is now under review.`,
+                  timestamp: app.updatedAt || new Date().toISOString(),
+                  read: false,
+                  applicationId: app.id
+                };
+              }
+              
+              if (notification) {
+                setNotifications(prev => [notification, ...prev]);
+                console.log('🔔 New notification:', notification);
+              }
+            }
+          });
+        }
+        
+        // Update last seen applications (store as Map with id as key)
+        const appsMap = new Map();
+        applications.forEach(app => {
+          appsMap.set(app.id, { id: app.id, status: app.status });
+        });
+        setLastSeenApplications(appsMap);
         setMyApplications(applications);
       });
       
@@ -106,40 +307,124 @@ export default function StudentDashboard() {
     }
   };
 
-  const handleApply = async (drive) => {
+  const handleApply = async (drive, e) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+
+    if (!auth.currentUser) {
+      alert('Please login to apply');
+      return;
+    }
+
+    // Check if already applied
+    const hasApplied = myApplications.some(app => app.driveId === drive.id);
+    if (hasApplied) {
+      alert('⚠️ You have already applied to this placement drive!');
+      return;
+    }
+
     try {
-      const user = auth.currentUser;
-      if (!user) {
-        alert('Please login to apply');
-        return;
-      }
+      // Use current student data state (from Firestore or localStorage)
+      const currentStudentData = studentData || student || {};
+      
+      // Prepare application data with student information
+      const studentName = currentStudentData.name || 
+                         (currentStudentData.firstName && currentStudentData.lastName 
+                           ? `${currentStudentData.firstName} ${currentStudentData.lastName}` 
+                           : '') ||
+                         auth.currentUser.email?.split('@')[0] || 
+                         'Student';
+      
+      const studentEmail = currentStudentData.email || auth.currentUser.email || '';
+      const studentBranch = currentStudentData.branch || currentStudentData.department || 'Computer Science';
+      const studentCGPA = currentStudentData.cgpa || currentStudentData.CGPA || '0.0';
+      const studentSkills = Array.isArray(currentStudentData.skills) 
+        ? currentStudentData.skills.join(', ') 
+        : (currentStudentData.skills || 'N/A');
 
-      // Check if already applied
-      const existingApplication = myApplications.find(app => app.driveId === drive.id);
-      if (existingApplication) {
-        alert('You have already applied to this drive!');
-        return;
-      }
-
-      // Create application
-      await addDoc(collection(db, 'applications'), {
+      const applicationData = {
         driveId: drive.id,
-        studentId: user.uid,
-        studentName: student.name,
-        studentEmail: student.email,
-        studentBranch: student.branch,
-        studentCGPA: student.cgpa,
+        studentId: auth.currentUser.uid,
+        studentName: studentName,
+        studentEmail: studentEmail,
+        studentBranch: studentBranch,
+        studentDepartment: currentStudentData.department || currentStudentData.branch || studentBranch,
+        studentCGPA: studentCGPA,
+        studentSkills: studentSkills,
         companyName: drive.companyName,
         roleOffered: drive.roleOffered,
+        resumeUrl: '', // No resume upload for one-click apply
+        resumeFileName: '',
         status: 'Applied',
-        appliedAt: new Date().toISOString()
+        appliedAt: new Date().toISOString(),
+        createdAt: new Date().toISOString(),
+        applicationData: {
+          firstName: currentStudentData.name?.split(' ')[0] || currentStudentData.firstName || '',
+          lastName: currentStudentData.name?.split(' ').slice(1).join(' ') || currentStudentData.lastName || '',
+          department: currentStudentData.department || currentStudentData.branch || studentBranch,
+          cgpa: studentCGPA,
+          skills: studentSkills,
+        }
+      };
+
+      console.log('📤 Submitting application:', {
+        company: drive.companyName,
+        role: drive.roleOffered,
+        student: studentName,
+        email: studentEmail
       });
 
-      alert('✅ Applied successfully!');
-      fetchMyApplications(); // Refresh applications
+      // Add application to Firestore
+      await addDoc(collection(db, 'applications'), applicationData);
+
+      console.log('✅ Application submitted successfully!');
+      alert('✅ Application submitted successfully!');
+      
+      // Application will automatically appear in TPO dashboard via real-time listener
     } catch (error) {
-      console.error('Error applying to drive:', error);
-      alert('Error applying to drive. Please try again.');
+      console.error('❌ Error submitting application:', error);
+      alert('❌ Error submitting application: ' + (error.message || 'Please try again.'));
+    }
+  };
+
+  const handleSaveJob = async (driveId, e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    if (!auth.currentUser) {
+      alert('Please login to save jobs');
+        return;
+      }
+
+    try {
+      // Check if already saved
+      const isSaved = savedJobs.has(driveId);
+      
+      if (isSaved) {
+        // Remove from saved jobs
+        const savedJobsQuery = query(
+          collection(db, 'savedJobs'),
+          where('studentId', '==', auth.currentUser.uid),
+          where('driveId', '==', driveId)
+        );
+        
+        const querySnapshot = await getDocs(savedJobsQuery);
+        querySnapshot.forEach(async (docSnapshot) => {
+          await deleteDoc(doc(db, 'savedJobs', docSnapshot.id));
+        });
+      } else {
+        // Add to saved jobs
+        await addDoc(collection(db, 'savedJobs'), {
+          studentId: auth.currentUser.uid,
+          driveId: driveId,
+          savedAt: new Date().toISOString()
+        });
+      }
+    } catch (error) {
+      console.error('Error saving job:', error);
+      alert('Error saving job. Please try again.');
     }
   };
 
@@ -160,103 +445,142 @@ export default function StudentDashboard() {
     }
   };
 
-  return (
-    <div className="p-8 bg-gray-100 min-h-screen">
-      {/* Header with Profile */}
-      <div className="flex justify-between items-center mb-6">
-        <h2 className="text-3xl font-bold text-blue-800">
-          Welcome, {student?.name || "Student"} 👋
-        </h2>
-        
-        {/* Profile Section */}
-        <div className="flex items-center space-x-4">
-          {/* Profile Image/Avatar */}
-          <div className="relative" ref={dropdownRef}>
-            <button
-              onClick={() => setShowProfileDropdown(!showProfileDropdown)}
-              className="flex items-center space-x-2 focus:outline-none"
-            >
-              {student?.profileImage ? (
-                <img
-                  src={student.profileImage}
-                  alt="Profile"
-                  className="w-10 h-10 rounded-full border-2 border-blue-500 object-cover hover:border-blue-600 transition-colors"
-                />
-              ) : (
-                <div className="w-10 h-10 rounded-full bg-blue-600 flex items-center justify-center text-white font-semibold text-sm hover:bg-blue-700 transition-colors border-2 border-blue-500">
-                  {getInitials(student?.name)}
-                </div>
-              )}
-              <svg className="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-              </svg>
-            </button>
+  // Calculate profile completion percentage
+  const calculateProfileCompletion = () => {
+    const fields = ['name', 'email', 'branch', 'cgpa', 'year', 'department', 'skills'];
+    const completed = fields.filter(field => student?.[field] && student[field] !== '' && student[field] !== '0.0').length;
+    return Math.round((completed / fields.length) * 100);
+  };
 
-            {/* Profile Dropdown */}
-            {showProfileDropdown && (
-              <div className="absolute right-0 mt-2 w-64 bg-white rounded-lg shadow-lg border border-gray-200 z-50">
-                <div className="p-4 border-b border-gray-200">
-                  <div className="flex items-center space-x-3">
-                    {student?.profileImage ? (
-                      <img
-                        src={student.profileImage}
-                        alt="Profile"
-                        className="w-12 h-12 rounded-full object-cover"
-                      />
-                    ) : (
-                      <div className="w-12 h-12 rounded-full bg-blue-600 flex items-center justify-center text-white font-semibold">
-                        {getInitials(student?.name)}
+  const profileCompletion = calculateProfileCompletion();
+
+  return (
+    <div className="student-dashboard">
+      {/* Top Navigation Bar */}
+      <div className="dashboard-header">
+        <div className="header-left">
+          <div className="logo">
+            <span className="logo-icon">🎓</span>
+            <span className="logo-text">CampusConnect</span>
+          </div>
+        </div>
+        
+        <div className="header-center">
+          <div className="search-bar">
+            <svg className="search-icon" width="20" height="20" viewBox="0 0 20 20" fill="none">
+              <path d="M9 17A8 8 0 1 0 9 1a8 8 0 0 0 0 16zM19 19l-4.35-4.35" stroke="#6c757d" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+            <input type="text" placeholder="Search for jobs, companies..." className="search-input" />
+          </div>
+        </div>
+        
+        <div className="header-right">
+          <div className="notification-wrapper" ref={notificationRef}>
+            <div className="notification-icon" onClick={() => setShowNotifications(!showNotifications)}>
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" stroke="#495057" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M13.73 21a2 2 0 0 1-3.46 0" stroke="#495057" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+              {notifications.filter(n => !n.read).length > 0 && (
+                <span className="notification-badge">{notifications.filter(n => !n.read).length}</span>
+              )}
+            </div>
+            
+            {showNotifications && (
+              <div className="notification-dropdown">
+                <div className="notification-header">
+                  <h3>Notifications</h3>
+                  {notifications.filter(n => !n.read).length > 0 && (
+            <button
+                      className="mark-all-read-btn"
+                      onClick={() => {
+                        setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+                      }}
+                    >
+                      Mark all as read
+                    </button>
+                  )}
+                </div>
+                <div className="notification-list">
+                  {notifications.length > 0 ? (
+                    notifications.map((notification) => (
+                      <div 
+                        key={notification.id} 
+                        className={`notification-item ${!notification.read ? 'unread' : ''}`}
+                        onClick={() => {
+                          setNotifications(prev => prev.map(n => 
+                            n.id === notification.id ? { ...n, read: true } : n
+                          ));
+                        }}
+                      >
+                        <div className="notification-icon-small">
+                          {notification.type === 'approved' && '🎉'}
+                          {notification.type === 'rejected' && '❌'}
+                          {notification.type === 'on_hold' && '⏸️'}
+                          {notification.type === 'new_job' && '🆕'}
+                        </div>
+                        <div className="notification-content">
+                          <h4 className="notification-title">{notification.title}</h4>
+                          <p className="notification-message">{notification.message}</p>
+                          <span className="notification-time">
+                            {new Date(notification.timestamp).toLocaleString()}
+                          </span>
+                        </div>
+                        {!notification.read && <div className="unread-indicator"></div>}
+                </div>
+                    ))
+                  ) : (
+                    <div className="no-notifications">
+                      <p>No notifications yet</p>
                       </div>
                     )}
-                    <div>
-                      <p className="font-semibold text-gray-800">{student?.name || "Student"}</p>
-                      <p className="text-sm text-gray-600">{student?.email}</p>
                     </div>
                   </div>
+            )}
                 </div>
                 
-                <div className="p-2">
+          <div className="profile-section" ref={dropdownRef}>
                   <button
-                    onClick={() => {
-                      setShowProfileDropdown(false);
-                      // Add profile edit functionality later
-                    }}
-                    className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded flex items-center space-x-2"
-                  >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+              onClick={() => setShowProfileDropdown(!showProfileDropdown)}
+              className="profile-button"
+            >
+              <div className="profile-avatar">
+                {student?.profileImage ? (
+                  <img src={student.profileImage} alt="Profile" />
+                ) : (
+                  <span>{student?.studentId?.slice(-1) || student?.name?.slice(-1) || '1'}</span>
+                )}
+              </div>
+              <div className="profile-info">
+                <span className="profile-name">{student?.studentId || student?.email?.split('@')[0] || student?.name || "Student"}</span>
+                <span className="profile-degree">{student?.branch || student?.department || "Computer Science"} {student?.department || "CSE"}</span>
+              </div>
+              <svg className="dropdown-arrow" width="12" height="12" viewBox="0 0 12 12" fill="none">
+                <path d="M3 4.5L6 7.5L9 4.5" stroke="#495057" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
                     </svg>
-                    <span>View Profile</span>
                   </button>
                   
-                  <button
-                    onClick={() => {
-                      setShowProfileDropdown(false);
-                      // Add settings functionality later
-                    }}
-                    className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded flex items-center space-x-2"
-                  >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+            {showProfileDropdown && (
+              <div className="profile-dropdown">
+                <div className="dropdown-item" onClick={() => { setShowProfileDropdown(false); }}>
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                    <path d="M8 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM8 10c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" fill="#495057"/>
+                  </svg>
+                  <span>View Profile</span>
+                </div>
+                <div className="dropdown-item" onClick={() => { setShowProfileDropdown(false); }}>
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                    <path d="M8 9.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3z" fill="#495057"/>
+                    <path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1zm0 12.5a5.5 5.5 0 1 1 0-11 5.5 5.5 0 0 1 0 11z" fill="#495057"/>
                     </svg>
                     <span>Settings</span>
-                  </button>
-                  
-                  <hr className="my-2" />
-                  
-                  <button
-                    onClick={() => {
-                      setShowProfileDropdown(false);
-                      handleLogout();
-                    }}
-                    className="w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-red-50 rounded flex items-center space-x-2"
-                  >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                </div>
+                <div className="dropdown-divider"></div>
+                <div className="dropdown-item" onClick={handleLogout}>
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                    <path d="M6 14H3a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1h3M10 11l3-3-3-3M13 8H6" stroke="#dc3545" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
                     </svg>
                     <span>Logout</span>
-                  </button>
                 </div>
               </div>
             )}
@@ -264,207 +588,283 @@ export default function StudentDashboard() {
         </div>
       </div>
 
-      {/* Student Profile */}
-      <div className="bg-white shadow p-6 rounded-lg mb-6">
-        <h3 className="text-xl font-bold mb-4">Student Profile</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <p><b>Name:</b> {student?.name}</p>
-            <p><b>Email:</b> {student?.email}</p>
-            <p><b>Branch:</b> {student?.branch}</p>
+      <div className="dashboard-content">
+        {/* Left Sidebar */}
+        <div className={`dashboard-sidebar ${sidebarOpen ? 'open' : 'closed'}`}>
+          <nav className="sidebar-nav">
+            <div className="nav-item active">
+              <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                <path d="M3 9l7-7 7 7M5 9v7a1 1 0 0 0 1 1h3M15 9v7a1 1 0 0 1-1 1h-3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+              <span>Dashboard</span>
+            </div>
+            <div className="nav-item" onClick={() => navigate('/student/profile')}>
+              <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                <path d="M10 10a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM10 12c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+              <span>My Profile</span>
+            </div>
+            <div className="nav-item">
+              <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                <path d="M9 12l2 2 4-4m6 2a9 9 0 1 1-18 0 9 9 0 0 1 18 0z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+              <span>My Applications</span>
+            </div>
+            <div className="nav-item" onClick={() => navigate('/student/saved-jobs')}>
+              <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                <path d="M5 5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v16l-5-3-5 3V5z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+              <span>Saved Jobs</span>
+            </div>
+            <div className="nav-item" onClick={() => navigate('/student/resume-checker')}>
+              <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                <path d="M4 4h12v12H4V4zM4 8h12M8 4v12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M6 6h2v2H6V6zM12 6h2v2h-2V6zM6 10h2v2H6v-2zM12 10h2v2h-2v-2z" stroke="currentColor" strokeWidth="1.5"/>
+              </svg>
+              <span>Resume Checker</span>
+            </div>
+          </nav>
+        </div>
+
+        {/* Main Content */}
+        <div className="dashboard-main">
+          {/* Welcome Section */}
+          <div className="welcome-card">
+            <div className="welcome-content">
+              <h1 className="welcome-title">Welcome back, {student?.name?.split(' ')[0] || "Student"}!</h1>
+              <p className="welcome-subtitle">Here's a summary of your recruitment journey today.</p>
+            </div>
+            <div className="profile-completion-section">
+              <div className="completion-header">
+                <h3 className="completion-title">Profile Completion</h3>
+                <p className="completion-percentage">{profileCompletion}%</p>
+              </div>
+              <div className="progress-bar-container">
+                <div className="progress-bar" style={{ width: `${profileCompletion}%` }}></div>
           </div>
-          <div>
-            <p><b>CGPA:</b> {student?.cgpa}</p>
-            <p><b>Year:</b> {student?.year}</p>
-            <p><b>Role:</b> Student</p>
+              <div className="completion-footer">
+                <p className="completion-text">Complete your profile to get better recommendations.</p>
+                <button className="update-profile-btn">Up... →</button>
           </div>
         </div>
       </div>
 
-      {/* Available Placement Drives */}
-      <div className="bg-white shadow p-6 rounded-lg mb-6">
-        <div className="flex justify-between items-center mb-4">
-          <h3 className="text-xl font-bold">Available Placement Drives</h3>
-          <div className="flex items-center space-x-2">
-            <span className="text-sm text-gray-500">Real-time updates active 🟢</span>
+          {/* Explore Opportunities Section */}
+          <div className="opportunities-section">
+            <h2 className="section-title">Explore Opportunities</h2>
+            <div className="tabs">
+              <button 
+                className={`tab ${activeTab === 'recommended' ? 'active' : ''}`}
+                onClick={() => setActiveTab('recommended')}
+              >
+                Recommended Jobs
+              </button>
+              <button 
+                className={`tab ${activeTab === 'active' ? 'active' : ''}`}
+                onClick={() => setActiveTab('active')}
+              >
+                Active Drives
+              </button>
             <button 
-              onClick={() => window.location.reload()} 
-              className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+                className={`tab ${activeTab === 'saved' ? 'active' : ''}`}
+                onClick={() => setActiveTab('saved')}
             >
-              🔄 Refresh Page
+                Saved Jobs
             </button>
-          </div>
-        </div>
-        <div className="text-sm text-gray-600 mb-4">
-          📊 Showing {placementDrives.length} eligible drives | Your CGPA: {student?.cgpa || 'Not set'}
         </div>
         
+            {/* Job Cards */}
+            <div className="job-cards-container">
         {loading ? (
-          <div className="text-center py-8">
-            <div className="text-lg">Loading placement drives...</div>
-          </div>
+                <div className="loading-text">Loading placement drives...</div>
         ) : placementDrives.length > 0 ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {placementDrives.map((drive) => {
+                <>
+                  {placementDrives.slice(0, jobsToShow).map((drive) => {
               const hasApplied = myApplications.some(app => app.driveId === drive.id);
               return (
-                <div key={drive.id} className="border border-gray-200 rounded-lg p-5 hover:shadow-md transition-shadow">
-                  <div className="flex justify-between items-start mb-3">
-                    <h4 className="text-xl font-semibold text-blue-700">{drive.companyName}</h4>
-                    <span className={`px-2 py-1 rounded text-xs font-medium ${
-                      hasApplied ? 'bg-green-200 text-green-800' : 'bg-blue-200 text-blue-800'
-                    }`}>
-                      {hasApplied ? 'Applied' : 'Open'}
-                    </span>
+                      <div key={drive.id} className="job-card">
+                        <div className="job-card-header">
+                          <div className="company-logo">
+                            {drive.companyName?.charAt(0) || 'C'}
+                          </div>
+                          <div className="job-info">
+                            <h3 className="job-role">{drive.roleOffered}</h3>
+                            <p className="company-name">{drive.companyName}</p>
+                          </div>
+                          <div className="job-header-actions">
+                            <button
+                              className={`bookmark-btn ${savedJobs.has(drive.id) ? 'saved' : ''}`}
+                              onClick={(e) => handleSaveJob(drive.id, e)}
+                              title={savedJobs.has(drive.id) ? 'Remove from saved' : 'Save job'}
+                            >
+                              <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                                <path 
+                                  d="M5 5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v16l-5-3-5 3V5z" 
+                                  stroke="currentColor" 
+                                  strokeWidth="2" 
+                                  strokeLinecap="round" 
+                                  strokeLinejoin="round"
+                                  fill={savedJobs.has(drive.id) ? 'currentColor' : 'none'}
+                                />
+                              </svg>
+                            </button>
+                            <span className="job-tag">{hasApplied ? 'Applied' : 'Recommended'}</span>
+                          </div>
+                        </div>
+                        <div className="job-details">
+                          <div className="job-detail-item">
+                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                              <path d="M8 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM8 10c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" fill="#6c757d"/>
+                            </svg>
+                            <span>{drive.location || 'Not specified'}</span>
                   </div>
-                  
-                  <div className="space-y-2 mb-4">
-                    <p><span className="font-medium text-gray-700">Role:</span> {drive.roleOffered}</p>
-                    <p><span className="font-medium text-gray-700">Salary:</span> <span className="text-green-600 font-semibold">₹{drive.salaryOffered} LPA</span></p>
-                    <p><span className="font-medium text-gray-700">Min CGPA:</span> <span className="text-blue-600 font-semibold">{drive.cgpaCriteria || 'No limit'}</span></p>
-                    <p><span className="font-medium text-gray-700">Location:</span> {drive.location || 'Not specified'}</p>
-                    {drive.applicationDeadline && (
-                      <p><span className="font-medium text-gray-700">Deadline:</span> {new Date(drive.applicationDeadline).toLocaleDateString()}</p>
-                    )}
+                          <div className="job-detail-item">
+                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                              <path d="M8 1v14M1 8h14" stroke="#6c757d" strokeWidth="2" strokeLinecap="round"/>
+                            </svg>
+                            <span>₹{drive.salaryOffered || 'N/A'} LPA</span>
                   </div>
-                  
-                  {drive.jobDescription && (
-                    <div className="mb-4">
-                      <p className="text-sm text-gray-600">{drive.jobDescription}</p>
                     </div>
-                  )}
-                  
+                            <div className="job-actions">
+                              <button 
+                                className="view-details-btn"
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  navigate(`/student/job/${drive.id}`, { state: { drive } });
+                                }}
+                              >
+                                View Details
+                              </button>
                   <button
-                    onClick={() => handleApply(drive)}
+                                className={`apply-btn ${hasApplied ? 'applied' : ''}`}
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  if (!hasApplied) {
+                                    handleApply(drive, e);
+                                  }
+                                }}
                     disabled={hasApplied}
-                    className={`w-full py-2 px-4 rounded-lg font-medium transition-colors ${
-                      hasApplied 
-                        ? 'bg-gray-300 text-gray-500 cursor-not-allowed' 
-                        : 'bg-green-600 text-white hover:bg-green-700'
-                    }`}
                   >
-                    {hasApplied ? '✅ Applied' : 'Apply Now'}
+                                {hasApplied ? 'Applied' : 'Apply Now'}
                   </button>
+                            </div>
                 </div>
               );
             })}
-          </div>
-        ) : (
-          <div className="text-center py-8">
-            <div className="text-gray-500 mb-2">No placement drives available</div>
-            <p className="text-sm text-gray-400">
-              {student?.cgpa ? 
-                `Your CGPA: ${student.cgpa} - Check back later for new opportunities!` :
-                'Update your CGPA in profile to see eligible drives'
-              }
-            </p>
+                  
+                  {/* See More / Show Less Button */}
+                  {placementDrives.length > 3 && (
+                    <div className="see-more-container">
+                      {jobsToShow < placementDrives.length ? (
+                        <button 
+                          className="see-more-btn"
+                          onClick={() => setJobsToShow(placementDrives.length)}
+                        >
+                          See More ({placementDrives.length - jobsToShow} more jobs)
+                        </button>
+                      ) : (
+                        <button 
+                          className="see-more-btn"
+                          onClick={() => setJobsToShow(3)}
+                        >
+                          Show Less
+                        </button>
+                      )}
           </div>
         )}
+                </>
+              ) : (
+                <div className="no-jobs">No placement drives available</div>
+              )}
+            </div>
       </div>
 
-      {/* Recent Status Updates */}
-      {myApplications.some(app => app.status !== 'Applied') && (
-        <div className="bg-white shadow p-6 rounded-lg mb-6">
-          <h3 className="text-xl font-bold mb-4">📢 Recent Updates</h3>
-          <div className="space-y-3">
-            {myApplications
-              .filter(app => app.status !== 'Applied')
-              .slice(0, 3)
-              .map((application) => (
-                <div key={application.id} className={`p-4 rounded-lg border-l-4 ${
-                  application.status === 'Approved' ? 'bg-green-50 border-green-500' :
-                  application.status === 'Rejected' ? 'bg-red-50 border-red-500' :
-                  'bg-yellow-50 border-yellow-500'
-                }`}>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="font-semibold text-gray-800">
-                        {application.companyName} - {application.roleOffered}
-                      </p>
-                      <p className={`text-sm font-medium ${
-                        application.status === 'Approved' ? 'text-green-700' :
-                        application.status === 'Rejected' ? 'text-red-700' :
-                        'text-yellow-700'
-                      }`}>
-                        Status: {application.status}
-                      </p>
+          {/* Application Status Section */}
+          {myApplications.length > 0 && (
+            <div className="application-status-section">
+              <h2 className="section-title">My Application Status</h2>
+              <div className="application-cards">
+                {myApplications.map((application) => {
+                  // Normalize status to handle variations
+                  const rawStatus = application.status || 'Applied';
+                  const currentStatus = rawStatus.trim();
+                  
+                  // Define the progression order (matching ManagerDashboard statuses)
+                  const statusSteps = ['Applied', 'On Hold', 'Approved'];
+                  const isRejected = currentStatus === 'Rejected';
+                  
+                  // Find current index - handle case-insensitive and space variations
+                  const currentIndex = statusSteps.findIndex(step => 
+                    step.toLowerCase() === currentStatus.toLowerCase() || 
+                    step.replace(/\s+/g, '').toLowerCase() === currentStatus.replace(/\s+/g, '').toLowerCase()
+                  );
+                  
+                  // If not found in steps, default to 0 (Applied)
+                  const normalizedIndex = currentIndex >= 0 ? currentIndex : 0;
+                  
+                  return (
+                    <div key={application.id} className="application-card">
+                      <div className="application-header">
+                        <div className="company-logo-small">
+                          {application.companyName?.charAt(0) || 'C'}
+                        </div>
+                        <div className="application-info">
+                          <h3 className="application-role">{application.roleOffered}</h3>
+                          <p className="application-company">{application.companyName}</p>
                     </div>
-                    <div className="text-2xl">
-                      {application.status === 'Approved' ? '🎉' :
-                       application.status === 'Rejected' ? '😔' : '⏳'}
+                        <span className={`status-badge ${currentStatus.toLowerCase().replace(/\s+/g, '-')}`}>
+                          {currentStatus}
+                        </span>
                     </div>
+                      <div className="status-progress">
+                        {statusSteps.map((status, index) => {
+                          // Step is completed if it's before or at the current status (and not rejected)
+                          const isCompleted = !isRejected && normalizedIndex >= index;
+                          // Step is active if it matches the current status exactly
+                          const isActive = !isRejected && normalizedIndex === index;
+                          // Check if the NEXT step (index + 1) is completed - used to determine line color
+                          const nextStepIndex = index + 1;
+                          const nextStepIsCompleted = !isRejected && normalizedIndex >= nextStepIndex;
+                          // Is last step
+                          const isLastStep = index === statusSteps.length - 1;
+                          
+                          return (
+                            <div 
+                              key={status} 
+                              className={`status-step ${isCompleted ? 'active' : ''}`}
+                              data-next-completed={!isLastStep && nextStepIsCompleted ? 'true' : 'false'}
+                            >
+                              <div className={`status-circle ${isCompleted ? 'active' : ''}`}>
+                                {isCompleted && !isActive ? '✓' : index + 1}
                   </div>
-                  {application.updatedAt && (
-                    <p className="text-xs text-gray-500 mt-2">
-                      Updated: {new Date(application.updatedAt).toLocaleString()}
-                    </p>
+                              <span className="status-label">{status}</span>
+                              {isActive && (
+                                <span className="current-status-indicator">Current</span>
                   )}
                 </div>
-              ))}
+                          );
+                        })}
+                        {isRejected && (
+                          <div className="status-step rejected-step">
+                            <div className="status-circle rejected">
+                              ✗
           </div>
+                            <span className="status-label rejected-label">Rejected</span>
         </div>
       )}
-
-      {/* My Applications */}
-      <div className="bg-white shadow p-6 rounded-lg mb-6">
-        <h3 className="text-xl font-bold mb-4">My Applications</h3>
-        
-        {myApplications.length > 0 ? (
-          <div className="overflow-x-auto">
-            <table className="w-full table-auto">
-              <thead>
-                <tr className="bg-gray-50">
-                  <th className="px-4 py-2 text-left">Company</th>
-                  <th className="px-4 py-2 text-left">Role</th>
-                  <th className="px-4 py-2 text-left">Applied Date</th>
-                  <th className="px-4 py-2 text-left">Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {myApplications.map((application) => (
-                  <tr key={application.id} className="border-b hover:bg-gray-50">
-                    <td className="px-4 py-3 font-semibold">{application.companyName}</td>
-                    <td className="px-4 py-3">{application.roleOffered}</td>
-                    <td className="px-4 py-3">{new Date(application.appliedAt).toLocaleDateString()}</td>
-                    <td className="px-4 py-3">
-                      <span className={`px-2 py-1 rounded text-sm font-medium ${
-                        application.status === 'Approved' ? 'bg-green-200 text-green-800' :
-                        application.status === 'Rejected' ? 'bg-red-200 text-red-800' :
-                        application.status === 'On Hold' ? 'bg-yellow-200 text-yellow-800' :
-                        'bg-blue-200 text-blue-800'
-                      }`}>
-                        {application.status === 'Approved' ? '✅ Approved' :
-                         application.status === 'Rejected' ? '❌ Rejected' :
-                         application.status === 'On Hold' ? '⏸️ On Hold' :
-                         '📝 Applied'}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
           </div>
-        ) : (
-          <div className="text-center py-8">
-            <div className="text-gray-500">No applications yet</div>
-            <p className="text-sm text-gray-400">Apply to placement drives to see them here</p>
+                      {application.updatedAt && (
+                        <div className="application-updated">
+                          Last updated: {new Date(application.updatedAt).toLocaleString()}
           </div>
         )}
       </div>
-
-      {/* Firebase Auth Status */}
-      <div className="bg-white shadow p-6 rounded-lg">
-        <h3 className="text-xl font-bold mb-4">Authentication Status</h3>
-        <div className="flex items-center space-x-2">
-          <div className="w-3 h-3 bg-green-500 rounded-full"></div>
-          <span className="text-green-700 font-semibold">Authenticated via Firebase</span>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
-        <p className="text-sm text-gray-600 mt-2">
-          User ID: {auth.currentUser?.uid}
-        </p>
-        <p className="text-sm text-gray-600">
-          Email Verified: {auth.currentUser?.emailVerified ? "Yes" : "No"}
-        </p>
       </div>
     </div>
   );
