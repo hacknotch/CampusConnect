@@ -604,6 +604,13 @@ export default function StudentDashboard() {
               </svg>
               <span>My Profile</span>
             </div>
+            {/* New: My Preference nav item */}
+            <div className="nav-item" onClick={() => navigate('/student/preference')}>
+              <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                <path d="M4 8h12M4 12h8M4 16h6M6 4h2" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+              <span>My Preference</span>
+            </div>
             <div className="nav-item">
               <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
                 <path d="M9 12l2 2 4-4m6 2a9 9 0 1 1-18 0 9 9 0 0 1 18 0z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>

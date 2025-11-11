@@ -1,0 +1,12 @@
+/* Minimal styling to match dashboard look */
+.pref-page { padding: 24px; background: #f8f9fa; min-height: 100vh; }
+.pref-card { max-width: 720px; margin: 0 auto; background: #fff; border-radius: 12px; padding: 24px; box-shadow: 0 6px 18px rgba(0,0,0,0.06); }
+.pref-title { margin: 0 0 8px; font-size: 24px; color: #18453B; }
+.pref-subtitle { margin: 0 0 24px; color: #6c757d; }
+.pref-form { display: grid; gap: 16px; }
+.pref-label { font-size: 14px; color: #495057; }
+.pref-input { border: 1px solid #dee2e6; border-radius: 8px; padding: 10px 12px; outline: none; }
+.pref-input:focus { border-color: #28a745; box-shadow: 0 0 0 3px rgba(40,167,69,.15); }
+.pref-actions { display: flex; justify-content: flex-end; margin-top: 8px; }
+.pref-save { background: #28a745; color: #fff; border: 0; border-radius: 8px; padding: 10px 16px; cursor: pointer; }
+.pref-save:hover { background: #218838; }

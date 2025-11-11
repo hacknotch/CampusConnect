@@ -12,6 +12,7 @@ import MyProfile from "./MyProfile.jsx";
 import JobDetailsPage from "./JobDetailsPage.jsx";
 import SavedJobs from "./SavedJobs.jsx";
 import ResumeChecker from "./ResumeChecker.jsx";
+import MyPreference from "./MyPreference.jsx";
 import SplashScreen from "./SplashScreen.jsx";
 
 function App() {
@@ -40,6 +41,7 @@ function App() {
           <Route path="/student/job/:id" element={<JobDetailsPage />} />
           <Route path="/student/saved-jobs" element={<SavedJobs />} />
           <Route path="/student/resume-checker" element={<ResumeChecker />} />
+          <Route path="/student/preference" element={<MyPreference />} />
           <Route path="/manager/dashboard" element={<ManagerDashboard />} />
           <Route path="/manager/add-drive" element={<AddPlacementDrive />} />
           <Route path="/hod/dashboard" element={<HODDashboard />} />
