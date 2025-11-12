@@ -11,7 +11,7 @@ import { initializeApp, cert, applicationDefault } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import { getFirestore } from 'firebase-admin/firestore';
 
-const DEFAULT_PASSWORD = process.env.DEFAULT_PASSWORD || 'Campus@2025';
+const DEFAULT_PASSWORD = process.env.DEFAULT_PASSWORD || 'mvjce@2027';
 
 function initAdmin() {
   try {
