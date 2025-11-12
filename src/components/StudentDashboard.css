@@ -6,7 +6,7 @@
 
 /* Top Navigation Bar */
 .dashboard-header {
-  background: #ffffff;
+  background: #fffbfb;
   padding: 16px 24px;
   display: flex;
   align-items: center;
@@ -255,6 +255,7 @@
 }
 
 .profile-button {
+  
   display: flex;
   align-items: center;
   gap: 12px;
@@ -269,7 +270,7 @@
   height: 40px;
   border-radius: 50%;
   background: #212529;
-  color: white;
+  color: rgb(0, 0, 0);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -292,7 +293,7 @@
 
 .profile-name {
   font-weight: 600;
-  color: #212529;
+  color: #000000;
   font-size: 0.95rem;
 }
 
