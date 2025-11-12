@@ -7,15 +7,18 @@ service cloud.firestore {
     function isOwner(uid) {
       return isSignedIn() && request.auth.uid == uid;
     }
+    function isVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
 
-    // Default: authenticated users can read; writes are explicitly scoped below
+    // Default: require verified email to read; writes are explicitly scoped below
     match /{document=**} {
-      allow read: if isSignedIn();
+      allow read: if isVerified();
     }
 
     // Student profiles
     match /students/{userId} {
-      allow read: if isSignedIn();
+      allow read: if isVerified();
       // Students can create their own document
       allow create: if isSignedIn() && request.auth.uid == userId;
       // Students can update their own document OR allow limited moderation fields
@@ -31,14 +34,15 @@ service cloud.firestore {
 
     // Placement drives (created by manager; students read-only)
     match /placementDrives/{driveId} {
-      allow read: if isSignedIn();
+      allow read: if isVerified();
+      // TODO: tighten create/update/delete with custom claims for TPO/HOD
       allow create: if isSignedIn();
       allow update, delete: if isSignedIn() && resource.data.createdBy == request.auth.uid;
     }
 
     // Applications (student creates; manager updates status)
     match /applications/{appId} {
-      allow read: if isSignedIn();
+      allow read: if isVerified();
       allow create: if isSignedIn() && request.resource.data.studentId == request.auth.uid;
       allow update: if isSignedIn() && (
         // Student can update their own application
@@ -51,14 +55,14 @@ service cloud.firestore {
 
     // Saved jobs (owned by student)
     match /savedJobs/{savedId} {
-      allow read: if isSignedIn();
+      allow read: if isVerified();
       allow create: if isSignedIn() && request.resource.data.studentId == request.auth.uid;
       allow update, delete: if isSignedIn() && resource.data.studentId == request.auth.uid;
     }
 
     // HOD requests (students create; HOD moderates status)
     match /hodRequests/{requestId} {
-      allow read: if isSignedIn();
+      allow read: if isVerified();
       allow create: if isSignedIn();
       // Allow only status-related field changes from clients
       allow update: if isSignedIn() && request.resource.data.diff(resource.data).changedKeys().hasOnly([

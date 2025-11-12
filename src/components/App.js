@@ -12,6 +12,8 @@ import MyProfile from "./MyProfile.jsx";
 import JobDetailsPage from "./JobDetailsPage.jsx";
 import SavedJobs from "./SavedJobs.jsx";
 import ResumeChecker from "./ResumeChecker.jsx";
+import ResetPassword from "./ResetPassword.jsx";
+import ProtectedRoute from "../auth/ProtectedRoute.jsx";
 import MyPreference from "./MyPreference.jsx";
 import SplashScreen from "./SplashScreen.jsx";
 
@@ -34,17 +36,18 @@ function App() {
         <Routes>
           <Route path="/" element={<RoleSelection />} />
           <Route path="/login" element={<Login />} />
-          <Route path="/student/dashboard" element={<StudentDashboard />} />
+          <Route path="/student/dashboard" element={<ProtectedRoute allowedRoles={["student"]}><StudentDashboard /></ProtectedRoute>} />
           <Route path="/student/approval-pending" element={<ApprovalPending />} />
           <Route path="/student/apply" element={<JobApplicationPage />} />
           <Route path="/student/profile" element={<MyProfile />} />
           <Route path="/student/job/:id" element={<JobDetailsPage />} />
           <Route path="/student/saved-jobs" element={<SavedJobs />} />
-          <Route path="/student/resume-checker" element={<ResumeChecker />} />
+          <Route path="/student/resume-checker" element={<ProtectedRoute allowedRoles={["student"]}><ResumeChecker /></ProtectedRoute>} />
           <Route path="/student/preference" element={<MyPreference />} />
           <Route path="/manager/dashboard" element={<ManagerDashboard />} />
           <Route path="/manager/add-drive" element={<AddPlacementDrive />} />
           <Route path="/hod/dashboard" element={<HODDashboard />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
         </Routes>
       </BrowserRouter>
     </>
